@@ -1,7 +1,7 @@
 import torch
 from collections.abc import Callable
-from .utils import clampedlog, sqnorm, euclidean_cost
-
+from .utils import clampedlog, euclidean_cost
+from .optimizers import EulerianOptimizer, LagrangianOptimizer
 class EulerianSPF:
     def __init__(self, X: torch.Tensor, potential: Callable[[torch.Tensor], torch.Tensor] | torch.Tensor,
                  eps:float, c: Callable[[torch.Tensor, torch.Tensor], torch.Tensor] | torch.Tensor = euclidean_cost):
@@ -22,64 +22,123 @@ class EulerianSPF:
                 raise RuntimeError("potential array size should be X.size(0).")
             self.potential_array = potential
         self.X = X
-        self.n = n
         self.eps = eps
-        self.schrodinger_potentials = None
         self.optimizer = None
 
-    def set_optimizer(self, opt):
+    def set_optimizer(self, opt: EulerianOptimizer):
         self.optimizer = opt
 
-    def SJKO_step(self, µ0: torch.Tensor, tau:float, max_optim_steps=100, max_sinkhorn_steps=100, sinkhorn_tol=1e-3,
-                  optim_tol=1e-3, return_f_µ=False):
-        µ1 = µ0.clone()
+    def SJKO_step(self, µ0: torch.Tensor, tau:float, f0: torch.Tensor | None = None, max_optim_steps=100,
+                  max_sinkhorn_steps=100, sinkhorn_tol=1e-3, optim_tol=1e-3):
+        if self.optimizer is None:
+            raise RuntimeError("Optimizer not set. Use set_optimizer(opt) to set an optimizer.")
         self.optimizer.reset()
-        k = 0
-        while k < max_optim_steps and (k==0 or ((grad - µ1 @ grad) < -optim_tol).any()):
-            f_11, g_00, g_10, f_01 = sinkhorn_loop(
+        µ1 = self.optimizer.step(µ0, 2*tau*self.potential_array)
+        schrodinger_potentials = [f0]*3 if f0 is not None else None
+        k = 1
+        d = optim_tol + torch.ones(1)
+        while k < max_optim_steps and (d > optim_tol).any():
+            g_10, f_01 = sinkhorn_loop(
                 µ1,
                 µ0,
                 self.cost_matrix,
-                self.cost_matrix,
-                self.cost_matrix,
                 [self.eps]*max_sinkhorn_steps,
-                init=self.schrodinger_potentials,
+                init=schrodinger_potentials[:2],
                 tol=sinkhorn_tol,
             )
-            self.schrodinger_potentials = [f_11, g_00, g_10, f_01]
-            grad = (f_01 - f_11).flatten() + 2*tau*self.potential_array
+            f1 = self_transport(µ1, self.cost_matrix, self.eps, init=schrodinger_potentials[2], tol=sinkhorn_tol,
+                                  max_steps=max_sinkhorn_steps)
+            schrodinger_potentials = [g_10, f_01, f1]
+            grad = (f_01 - f1).flatten() + 2*tau*self.potential_array
             µ1 = self.optimizer.step(µ1, grad)
             k += 1
-        if return_f_μ:
-            return µ1, f_11
+            d = µ1 @ grad - grad
         return µ1
     
-    def integrate(self, µ0: torch.Tensor, t: torch.Tensor, return_f_µ:bool = False, print_progress: bool = False,
+    def integrate(self, µ0: torch.Tensor, t: torch.Tensor, return_ft: bool = False, print_progress: bool = False,
                   **kwargs):
-        µ_t = µ0[None,:]
-        if return_f_μ:
-            f_µ_t = self_transport(µ0, self.cost_matrix, self.eps)[None,:]
+        
+        f = self_transport(µ0, self.cost_matrix, self.eps)
+        µt = µ0[None,:]
+        if return_ft:
+            ft = f[None,:]
+        
         for i, tau in enumerate(torch.diff(t)):
             if print_progress:
-                print(f'\r SJKO step {i+1}...', end='')
-            res = self.SJKO_step(µ_t[-1,:], tau, return_f_μ=return_f_μ, **kwargs)
-            if return_f_μ:
-                µ, f_µ = res
-                f_μ_t = torch.cat((f_μ_t, f_μ[None,:]), dim=0)
-            else:
-                µ = res
-            µ_t = torch.cat((µ_t, µ[None,:]), dim=0)
-        if return_f_μ:
-            return µ_t, f_μ_t
-        return µ_t
+                print(f'\r SJKO step {i+1}/{t.size(0)-1}...', end='')
+            µ = self.SJKO_step(µt[-1,:], tau, f0=f, **kwargs)
+            f = self_transport(µ, self.cost_matrix, self.eps, init=f)
+            if return_ft:
+                ft = torch.cat((ft, f[None,:]), dim=0)
+            µt = torch.cat((µt, µ[None,:]), dim=0)
+        
+        if return_ft:
+            return µt, ft
+        return µt
 
+
+class LagrangianSPF:
+
+    def __init__(self, potential: Callable[[torch.Tensor], torch.Tensor], eps: float,
+                 c: Callable[[torch.Tensor, torch.Tensor], torch.Tensor] = euclidean_cost):
+        self.potential = potential
+        self.eps = eps
+        self.c = c
+        self.µ = None
+        self.optimizer = None
+
+    def set_optimizer(self, opt: LagrangianOptimizer):
+        self.optimizer = opt
+    
+    def SJKO_step(self, x0: torch.Tensor, tau: float, f0: torch.Tensor | None = None, max_optim_steps=100,
+                  max_sinkhorn_steps=100, sinkhorn_tol=1e-3):
+        if self.optimizer is None:
+            raise RuntimeError("Optimizer not set. Use set_optimizer(opt) to set an optimizer.")
+        if self.µ is None:
+            self.µ = torch.ones_like(x0) / x0.size(0)
+        self.optimizer.reset()
+        x1 = x0.clone()
+        x1.requires_grad = True
+        grad = torch.autograd.grad(2*tau*self.potential(x1).mean(), x1)[0]
+        x1 = self.optimizer.step(x1, grad)
+        k = 1
+        schrodinger_potentials = [f0]*3 if f0 is not None else None
+        while k < max_optim_steps:
+            g_10, f_01 = sinkhorn_loop(
+                self.µ,
+                self.µ,
+                self.c(x1, x0),
+                [self.eps]*max_sinkhorn_steps,
+                init=schrodinger_potentials[:2],
+                tol=sinkhorn_tol,
+            )
+            f1 = self_transport(self.µ, self.c(x1, x1), self.eps, init=schrodinger_potentials[2], tol=sinkhorn_tol,
+                                  max_steps=max_sinkhorn_steps)
+            schrodinger_potentials = [g_10, f_01, f1]
+            loss = (f_01 - f1 + g_10 +2*tau*self.potential(x1)).mean()
+            grad = torch.autograd.grad(loss, x1)[0]
+            x1 = self.optimizer.step(x1, grad)
+            k+=1
+        return x1.detach()
+    
+    def integrate(self, x0: torch.Tensor, t: torch.Tensor, print_progress: bool = False, **kwargs):
+        f = self_transport(x0, self.c(x0, x0), self.eps)
+        xt = x0[None,:]
+        
+        for i, tau in enumerate(torch.diff(t)):
+            if print_progress:
+                print(f'\r SJKO step {i+1}/{t.size(0)-1}...', end='')
+            x = self.SJKO_step(xt[-1,:], tau, f0=f, **kwargs)
+            f = self_transport(self.µ, self.c(x, x), self.eps, init=f)
+            xt = torch.cat((xt, x[None,:]), dim=0)
+        return xt
 
 
 # Code was adapted from the geomloss package, see https://github.com/jeanfeydy/geomloss 
 def softmin(eps, c, f):
     return -eps * (f.view(1, -1) - c / eps).logsumexp(1).view(-1)
 
-def sinkhorn_loop(µ1, µ2, c_xx, c_yy, c_xy, eps_list, init=None, tol=1e-5):
+def sinkhorn_loop(µ1, µ2, c_xy, eps_list, init=None, tol=1e-4):
     c_yx = c_xy.T
     logµ1 = clampedlog(µ1)
     logµ2 = clampedlog(µ2)
@@ -88,22 +147,16 @@ def sinkhorn_loop(µ1, µ2, c_xx, c_yy, c_xy, eps_list, init=None, tol=1e-5):
     if init is None:
         g_12 = softmin(eps, c_yx, logµ1)
         f_21 = softmin(eps, c_xy, logµ2)
-        f_11 = softmin(eps, c_xx, logµ1)
-        g_22 = softmin(eps, c_yy, logµ2)
     else:
-        f_11, g_22, g_12, f_21 = init
+        g_12, f_21 = init
 
     for eps in eps_list:
         ft_21 = softmin(eps, c_xy, logµ2 + g_12 / eps)
         gt_12 = softmin(eps, c_yx, logµ1 + f_21 / eps)
-        ft_11 = softmin(eps, c_xx, logµ1 + f_11 / eps)
-        gt_22 = softmin(eps, c_yy, logµ2 + g_22 / eps)
         if max(abs(ft_21 - f_21).max().item(),
                abs(gt_12 - g_12).max().item()) < tol:
             break
-
         f_21, g_12 = 0.5 * (f_21 + ft_21), 0.5 * (g_12 + gt_12) 
-        f_11, g_22 = 0.5 * (f_11 + ft_11), 0.5 * (g_22 + gt_22) 
 
     torch.autograd.set_grad_enabled(True)
 
@@ -111,21 +164,23 @@ def sinkhorn_loop(µ1, µ2, c_xx, c_yy, c_xy, eps_list, init=None, tol=1e-5):
         softmin(eps, c_xy, (logµ2 + g_12 / eps).detach()),
         softmin(eps, c_yx, (logµ1 + f_21 / eps).detach()),
     )
-    f_11 = softmin(eps, c_xx, (logµ1 + f_11 / eps).detach())
-    g_22 = softmin(eps, c_yy, (logµ2 + g_22 / eps).detach())
-    return f_11, g_22, g_12, f_21
+    return g_12, f_21
 
-def self_transport(µ, c, eps, init = None, tol=1e-4, maxiter=5):
+def self_transport(µ, c, eps, init = None, tol=1e-4, max_steps=5):
     logµ = clampedlog(µ)
+    torch.autograd.set_grad_enabled(False)
     if init is None:
         f_µ = softmin(eps, c, logµ)
     else:
         f_µ = init
     k = 0
     d = tol + 1
-    while k < maxiter and d > tol:
+    while k < max_steps and d > tol:
         k+=1
         f_µ_ = f_µ.clone()
-        f_µ = .5*(f_µ_ + softmin(eps, c, logµ + f_µ / eps))
-        d = sqnorm(f_µ-f_µ_).item()
+        f_µ = .5*(f_µ + softmin(eps, c, logµ + f_µ / eps))
+        d = (f_µ-f_µ_).max().item()
+    
+    torch.autograd.set_grad_enabled(True)
+    f_µ = softmin(eps, c, logµ + f_µ / eps).detach()
     return f_µ

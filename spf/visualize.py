@@ -122,3 +122,7 @@ def b_flow_sphere(cost_matrix, eps, fµ_t, potential_array, B_kwargs={}, rotatio
     traj = b_t @ P
     return [go.Frame(data=data+[line]) for line in traj_3d(traj, **flow_kwargs)]
 
+def particle_flow(Xt, kwargs):
+    marker = kwargs.pop('marker', {})
+    marker['size'] = marker.get('size', 5)
+    return [go.Scatter(x=x[:,0], y=x[:,1], mode='markers', marker=marker, **kwargs) for x in Xt]
