@@ -95,6 +95,7 @@ def b_flow_sphere(cost_matrix, eps, fµ_t, potential_array, B_kwargs={}, rotatio
     B /= torch.sqrt((B*B).sum(-1)[:,None])
     Bkwargs = dict(dict(mode='lines', line=dict(width=1, color='red'), name=r'Boundary of B'), **B_kwargs)
     rkwargs = dict(dict(mode='lines', line=dict(width=1, color='black')), **rotation_lines_kwargs)
+    flow_kwargs = dict(mode='lines', **flow_kwargs)
     data = [go.Scatter3d(xyz(B), **Bkwargs)]
     V = torch.diag(potential_array)
     PVQ = P @ V @ Q

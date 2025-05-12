@@ -1,2 +1,2 @@
 import spf.utils, spf.optimizers, spf.visualize
-from .sjko import *
+from .sjko import EulerianSPF, LagrangianSPF
