@@ -6,7 +6,7 @@ from .utils import simplex_proj
 class EulerianOptimizer(ABC):
 
     @abstractmethod
-    def step(self, µ: torch.Tensor, grad: torch.Tensor):
+    def step(self, µ: torch.Tensor, grad: torch.Tensor) -> torch.Tensor:
         pass
 
     @abstractmethod
@@ -69,7 +69,7 @@ class ExpGD(EulerianOptimizer):
 class LagrangianOptimizer(ABC):
 
     @abstractmethod
-    def step(self, x: torch.Tensor, grad:torch.Tensor):
+    def step(self, x: torch.Tensor, grad:torch.Tensor) -> torch.Tensor:
         pass
     
     @abstractmethod

@@ -29,29 +29,30 @@ class EulerianSPF:
     def set_optimizer(self, opt: EulerianOptimizer):
         self.optimizer = opt
 
-    def SJKO_step(self, µ0: torch.Tensor, tau:float, f0: torch.Tensor | None = None, max_optim_steps=100,
+    def SJKO_step(self, µ0: torch.Tensor, tau:float | torch.Tensor, f0: torch.Tensor | None = None, max_optim_steps=100,
                   max_sinkhorn_steps=100, sinkhorn_tol=1e-3, optim_tol=1e-3):
         if self.optimizer is None:
             raise RuntimeError("Optimizer not set. Use set_optimizer(opt) to set an optimizer.")
         self.optimizer.reset()
         µ1 = self.optimizer.step(µ0, 2*tau*self.potential_array)
-        schrodinger_potentials = [f0]*3 if f0 is not None else None
+        schrodinger_potentials = [f0]*2 if f0 is not None else None
+        f1 = f0
         k = 1
         d = optim_tol + torch.ones(1)
         while k < max_optim_steps and (d > optim_tol).any():
-            f_01, g_10 = sinkhorn_loop(
+            f10, g10 = sinkhorn_loop(
                 µ1,
                 µ0,
                 self.cost_matrix,
                 self.cost_matrix,
                 [self.eps]*max_sinkhorn_steps,
-                init=schrodinger_potentials[:2],
+                init=schrodinger_potentials,
                 tol=sinkhorn_tol,
             )
-            f1 = self_transport(µ1, self.cost_matrix, self.eps, init=schrodinger_potentials[2], tol=sinkhorn_tol,
+            f1 = self_transport(µ1, self.cost_matrix, self.eps, init=f1, tol=sinkhorn_tol,
                                   max_steps=max_sinkhorn_steps)
-            schrodinger_potentials = [g_10, f_01, f1]
-            grad = (f_01 - f1).flatten() + 2*tau*self.potential_array
+            schrodinger_potentials = [f10, g10]
+            grad = f10 - f1 + 2*tau*self.potential_array
             µ1 = self.optimizer.step(µ1, grad)
             k += 1
             d = µ1 @ grad - grad
@@ -93,40 +94,42 @@ class LagrangianSPF:
     def set_optimizer(self, opt: LagrangianOptimizer):
         self.optimizer = opt
     
-    def SJKO_step(self, x0: torch.Tensor, tau: float, f0: torch.Tensor | None = None, max_optim_steps=100,
+    def SJKO_step(self, x0: torch.Tensor, tau: float | torch.Tensor, f0: torch.Tensor | None = None, max_optim_steps=100,
                   max_sinkhorn_steps=100, sinkhorn_tol=1e-3):
         if self.optimizer is None:
             raise RuntimeError("Optimizer not set. Use set_optimizer(opt) to set an optimizer.")
         if self.µ is None:
-            self.µ = torch.ones_like(x0) / x0.size(0)
+            self.µ = torch.ones(x0.size(0)) / x0.size(0)
         self.optimizer.reset()
         x1 = x0.clone()
         x1.requires_grad = True
         grad = torch.autograd.grad(2*tau*self.potential(x1).mean(), x1)[0]
         x1 = self.optimizer.step(x1, grad)
         k = 1
-        schrodinger_potentials = [f0]*3 if f0 is not None else None
+        f1 = f0
+        schrodinger_potentials = [f0]*2 if f0 is not None else None
         while k < max_optim_steps:
-            f_01, g_10 = sinkhorn_loop(
+            f10, g10 = sinkhorn_loop(
                 self.µ,
                 self.µ,
                 self.c(x1, x0.detach()),
                 self.c(x0, x1.detach()),
                 [self.eps]*max_sinkhorn_steps,
-                init=schrodinger_potentials[:2],
+                init=schrodinger_potentials,
                 tol=sinkhorn_tol,
             )
-            f1 = self_transport(self.µ, self.c(x1, x1), self.eps, init=schrodinger_potentials[2], tol=sinkhorn_tol,
+            f1 = self_transport(self.µ, self.c(x1, x1.detach()), self.eps, init=f1, tol=sinkhorn_tol,
                                   max_steps=max_sinkhorn_steps)
-            schrodinger_potentials = [g_10, f_01, f1]
-            loss = (f_01 - f1 + g_10 + 2*tau*self.potential(x1)).mean()
+            schrodinger_potentials = [g10, f10]
+            loss = (f10 - f1 + g10 + 2*tau*self.potential(x1)).mean()
             grad = torch.autograd.grad(loss, x1)[0]
             x1 = self.optimizer.step(x1, grad)
             k+=1
         return x1.detach()
     
     def integrate(self, x0: torch.Tensor, t: torch.Tensor, print_progress: bool = False, **kwargs):
-        f = self_transport(x0, self.c(x0, x0), self.eps, tol=kwargs.get('sinkhorn_tol', 1e-4),
+        self.µ = torch.ones(x0.size(0)) / x0.size(0)
+        f = self_transport(self.µ, self.c(x0, x0.detach()), self.eps, tol=kwargs.get('sinkhorn_tol', 1e-4),
                            max_steps=kwargs.get('max_sinkhorn_steps', 10))
         xt = x0[None,:]
         
@@ -134,7 +137,7 @@ class LagrangianSPF:
             if print_progress:
                 print(f'\r SJKO step {i+1}/{t.size(0)-1}...', end='')
             x = self.SJKO_step(xt[-1,:], tau, f0=f, **kwargs)
-            f = self_transport(self.µ, self.c(x, x), self.eps, init=f)
+            f = self_transport(self.µ, self.c(x, x.detach()), self.eps, init=f)
             xt = torch.cat((xt, x[None,:]), dim=0)
         return xt
 
@@ -152,18 +155,19 @@ def sinkhorn_loop(µ1, µ2, c_xy, c_yx, eps_list, init=None, tol=1e-4):
         f12 = softmin(eps, c_xy, log_µ2)
         g12 = softmin(eps, c_yx, log_µ1)
     else:
-        g12, f12 = init
-
+        f12, g12 = init
+    # count = 0
     for eps in eps_list:
         f12_ = softmin(eps, c_xy, log_µ2 + g12 / eps)
         g12_ = softmin(eps, c_yx, log_µ1 + f12 / eps)
+        # count+=1
         if max(abs(f12_ - f12).max().item(),
                abs(g12_ - g12).max().item()) < tol:
             break
         f12, g12 = 0.5 * (f12 + f12_), 0.5 * (g12 + g12_) 
 
     torch.autograd.set_grad_enabled(True)
-
+    # print(count, end='\r')
     f12, g12 = (
         softmin(eps, c_xy, (log_µ2 + g12 / eps).detach()),
         softmin(eps, c_yx, (log_µ1 + f12 / eps).detach()),
@@ -183,7 +187,7 @@ def self_transport(µ, c, eps, init=None, tol=1e-4, max_steps=10):
         k += 1
         f_µ_ = f_µ.clone()
         f_µ = .5*(f_µ + softmin(eps, c, logµ + f_µ / eps))
-        d = (f_µ-f_µ_).max().item()
+        d = abs(f_µ-f_µ_).max().item()
     
     torch.autograd.set_grad_enabled(True)
     f_µ = softmin(eps, c, (logµ + f_µ / eps).detach())
