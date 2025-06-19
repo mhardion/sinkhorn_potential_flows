@@ -39,9 +39,12 @@ def xy(x):
 def xyz(x):
     return dict(x=x[...,0], y=x[...,1], z=x[...,2])
 
-def uniform(domain):
-    a =  torch.ones(domain.size()[:-1], device=domain.device)
-    return a/a.sum()
+def unif(a, b, X):
+    assert X.size(1) == 1
+    Y = X.flatten()
+    µ = torch.zeros_like(Y)
+    µ[(a<Y) & (Y<b)] = 1.
+    return µ/µ.sum()
 
 def diracs(domain, index):
     i = torch.tensor(index)

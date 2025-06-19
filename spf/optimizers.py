@@ -25,10 +25,40 @@ class PGD(EulerianOptimizer):
     
     def step(self, µ, grad):
         self.current_iter += 1
-        return simplex_proj(µ - self.lr(self.current_iter)*grad)
+        proj = simplex_proj(µ - self.lr(self.current_iter)*grad)
+        # minimal mass for stability
+        proj[proj < 1e-5] = 1e-5
+        return proj/proj.sum()
     
     def reset(self):
         self.current_iter = 0
+
+class APGD(EulerianOptimizer):
+
+    def __init__(self,lr: float | Callable[[int], float]):
+        super().__init__()
+        self.current_iter = 0
+        if callable(lr):
+            self.lr = lr
+        else:
+            self.lr = lambda k: lr
+        self.µ_ = None
+    
+    def step(self, µ, grad):
+        self.current_iter += 1
+        if self.µ_ is None:
+            self.µ_ = µ.clone()
+        µ1 = simplex_proj(self.µ_ - self.lr(self.current_iter)*grad)
+        µ_temp = µ1 + ((self.current_iter-1)/(self.current_iter+2))*(µ1 - µ)
+        # if grad @ (µ_temp - self.µ_) >0:
+        #     self.reset()
+        # else:
+        self.µ_ = µ_temp
+        return µ1
+    
+    def reset(self):
+        self.current_iter = 0
+        self.µ_ = None
 
 class FrankWolfe(EulerianOptimizer):
 
@@ -64,6 +94,22 @@ class ExpGD(EulerianOptimizer):
     def reset(self):
         self.current_iter = 0
 
+class CauchySimplex(EulerianOptimizer):
+
+    def __init__(self, lr: float | Callable[[int], float]) -> None:
+        super().__init__()
+        self.current_iter = 0
+        if callable(lr):
+            self.lr = lr
+        else:
+            self.lr = lambda k: lr
+
+    def step(self, µ, grad):
+        self.current_iter += 1
+        return µ - self.lr(self.current_iter)*µ*(grad-µ@grad)
+    
+    def reset(self):
+        self.current_iter = 0
 
 
 class LagrangianOptimizer(ABC):

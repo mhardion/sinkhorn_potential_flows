@@ -3,7 +3,7 @@ import torch
 from .utils import xyz, apply_to_eig, sqnorm
 
 def fig_anim_3d(data, fig_side_px=700, dt=100, axisrange=[-1, 1], axisvisible=True, title=""):
-    return go.Figure(data=data,
+    fig = go.Figure(data=data[0],
                      layout=go.Layout(
                          height=fig_side_px,
                          width=fig_side_px,
@@ -26,6 +26,9 @@ def fig_anim_3d(data, fig_side_px=700, dt=100, axisrange=[-1, 1], axisvisible=Tr
                                                                             transition=dict(duration=0))])])]
                                      ),
                     )
+    fig.frames = [go.Frame(data=d, layout=go.Layout(xaxis=dict(range=axisrange, autorange=False),
+                                                      yaxis=dict(range=axisrange, autorange=False))) for d in data]
+    return fig
 
 def fig_anim_2d(data, fig_side_px=700, dt=100, axisrange=[-1, 1], axisvisible=True, title=""):
     fig = go.Figure(data=data[0],
@@ -48,7 +51,7 @@ def fig_anim_2d(data, fig_side_px=700, dt=100, axisrange=[-1, 1], axisvisible=Tr
                     ),
             )
     fig.frames = [go.Frame(data=d, layout=go.Layout(xaxis=dict(range=axisrange, autorange=False),
-                                                      yaxis=dict(range=axisrange, autorange=False))) for d in data]
+                                                    yaxis=dict(range=axisrange, autorange=False))) for d in data]
     return fig
 
 def go_sphere(heatmap=None, **kwargs):
@@ -82,7 +85,7 @@ def mass_flow(X, µ_t, **kwargs):
     if X.size(1) == 2:
         zmax = µ_t.max().item()
         return [go.Heatmap(x=X[:,0], y=X[:,1], z=µ, zmin=0, zmax=zmax, **kwargs) for µ in µ_t]
-    return [go.Scatter(x=X.flatten(), y=µ, fill='tozeroy', **kwargs) for µ in µ_t]
+    return [go.Bar(x=X.flatten(), y=µ, **kwargs) for µ in µ_t]
 
 def b_flow_sphere(cost_matrix, eps, fµ_t, potential_array, B_kwargs={}, rotation_lines_kwargs={}, sphere_kwargs={}, flow_kwargs={}):
     b_t = torch.exp(-fμ_t/eps)
@@ -94,13 +97,13 @@ def b_flow_sphere(cost_matrix, eps, fµ_t, potential_array, B_kwargs={}, rotatio
     t_ = 1-t
     B = torch.cat([t_*Q[:,i] + t*Q[:,(i+1)%3] for i in range(3)])
     B /= torch.sqrt((B*B).sum(-1)[:,None])
-    Bkwargs = dict(dict(mode='lines', line=dict(width=1, color='red'), name=r'Boundary of B'), **B_kwargs)
+    Bkwargs = dict(dict(mode='lines', line=dict(width=1, color='red')), **B_kwargs)
     rkwargs = dict(dict(mode='lines', line=dict(width=1, color='black')), **rotation_lines_kwargs)
     flow_kwargs = dict(mode='lines', **flow_kwargs)
-    data = [go.Scatter3d(xyz(B), **Bkwargs)]
+    spheredata = [go.Scatter3d(xyz(B), **Bkwargs)]
     V = torch.diag(potential_array)
     PVQ = P @ V @ Q
-    data.append(go_sphere(heatmap=lambda b: torch.einsum('ijk,kk,ijk->ij', b, PVQ, b), **dict(showscale=False, **sphere_kwargs)))
+    spheredata.append(go_sphere(heatmap=lambda b: torch.einsum('ijk,kk,ijk->ij', b, PVQ, b), **dict(showscale=False, **sphere_kwargs))) # type: ignore
     A = (2/eps)*(Q @ V @ P - P @ V @ Q)
     a = torch.tensor([A[2, 1], A[0, 2], A[1, 0]])
     a /= torch.sqrt(sqnorm(a))
@@ -113,16 +116,16 @@ def b_flow_sphere(cost_matrix, eps, fµ_t, potential_array, B_kwargs={}, rotatio
     mask[k] = False
     basis = R[mask,:]
     basis /= torch.sqrt(sqnorm(basis))[:,None]
-    latitudes = torch.linspace(-1, 1, 20)
-    radii = torch.sqrt(1-latitudes**2)
+    altitudes = torch.cos(torch.linspace(0, torch.pi, 20))
+    radii = torch.sqrt(1-altitudes**2)
     theta = torch.linspace(0, 2*torch.pi, 100)[:,None]
     c, s = torch.cos(theta), torch.sin(theta)
-    for lat, r in zip(latitudes, radii):
-        circ = lat*a + r*c*basis[0] + r*s*basis[1]
-        data.append(go.Scatter3d(xyz(circ), **rkwargs))
-        rkwargs['showlegend'] = False
+    for z, r in zip(altitudes, radii):
+        circ = z*a + r*c*basis[0] + r*s*basis[1]
+        spheredata.append(go.Scatter3d(xyz(circ), legendgroup=1, **rkwargs))
+        rkwargs["showlegend"] = False # type: ignore
     traj = b_t @ P
-    return [data+[line] for line in traj_3d(traj, **flow_kwargs)]
+    return spheredata, traj_3d(traj, **flow_kwargs)
 
 def particle_flow(Xt, **kwargs):
     marker = kwargs.pop('marker', {})
