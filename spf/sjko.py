@@ -1,7 +1,9 @@
 import torch
 from collections.abc import Callable
-from .utils import clampedlog, euclidean_cost
+from .utils import clampedlog, euclidean_cost, euclidean_cost_batch
 from .optimizers import EulerianOptimizer, LagrangianOptimizer
+# from geomloss import SamplesLoss
+# import numpy as np
 
 class EulerianSPF:
     def __init__(self, X: torch.Tensor, potential: Callable[[torch.Tensor], torch.Tensor] | torch.Tensor,
@@ -25,6 +27,7 @@ class EulerianSPF:
         self.X = X
         self.eps = eps
         self.optimizer = None
+        # self.S_eps = SamplesLoss("sinkhorn", blur=np.sqrt(eps), backend='tensorized', cost=euclidean_cost_batch)
 
     def set_optimizer(self, opt: EulerianOptimizer):
         self.optimizer = opt
@@ -52,6 +55,7 @@ class EulerianSPF:
             f1 = self_transport(µ1, self.cost_matrix, self.eps, init=f1, tol=sinkhorn_tol,
                                   max_steps=max_sinkhorn_steps)
             schrodinger_potentials = [f10, g10]
+            # self.S_eps()
             grad = f10 - f1 + 2*tau*self.potential_array
             µ1 = self.optimizer.step(µ1, grad)
             k += 1

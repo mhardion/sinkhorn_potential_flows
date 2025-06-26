@@ -27,8 +27,8 @@ class PGD(EulerianOptimizer):
         self.current_iter += 1
         proj = simplex_proj(µ - self.lr(self.current_iter)*grad)
         # minimal mass for stability
-        proj[proj < 1e-5] = 1e-5
-        return proj/proj.sum()
+        # proj[proj < 1e-5] = 1e-5
+        return proj #/proj.sum()
     
     def reset(self):
         self.current_iter = 0

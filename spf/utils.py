@@ -8,6 +8,12 @@ def euclidean_cost(x, y):
     normy = sqnorm(y)
     return normx[:,None] + normy[None,:] - 2*x@y.T
 
+def euclidean_cost_batch(x, y):
+    normx = sqnorm(x)
+    normy = sqnorm(y)
+    dotprod = torch.einsum('bik,bjk->bij', x, y)
+    return normx[...,None] + normy[:,None,:] - 2*dotprod
+
 def clampedlog(a):
     loga = torch.log(a)
     loga[a <= 0] = -1e5
