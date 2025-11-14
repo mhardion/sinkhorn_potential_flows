@@ -1,6 +1,7 @@
 from plotly import graph_objects as go
 import torch
 from .utils import xyz, apply_to_eig, sqnorm
+import numpy as np
 
 def fig_anim_3d(data, fig_side_px=700, dt=100, axisrange=[-1, 1], axisvisible=True, title=""):
     fig = go.Figure(data=data[0],
@@ -130,7 +131,20 @@ def b_flow_sphere(cost_matrix, eps, fµ_t, potential_array, B_kwargs={}, rotatio
 def particle_flow(Xt, **kwargs):
     marker = kwargs.pop('marker', {})
     marker['size'] = marker.get('size', 5)
-    return [go.Scatter(x=x[:,0], y=x[:,1], mode='markers', marker=marker, **kwargs) for x in Xt]
+    if Xt.size(2) > 2:
+        raise NotImplementedError
+    if Xt.size(2) == 2:
+        return [go.Scatter(x=x[:,0], y=x[:,1], mode='markers', marker=marker, **kwargs) for x in Xt]
+    return [go.Scatter(x=x[:,0], y=torch.zeros(x.size(0)),  mode='markers', marker=marker, **kwargs) for x in Xt]
+
+def particles_to_bars(xt, X, width, **kwargs):
+    data = []
+    bins = torch.cat((X.flatten()-width/2, X[-1]+width/2))
+    for x in xt:
+        µ, _ = np.histogram(x, bins)
+        µ = µ/µ.sum()
+        data.append(go.Bar(x=X.flatten(), y=µ, width=width, **kwargs))
+    return data
 
 def potential_heatmap(V, domain, grid_size=50, **kwargs):
     xm, xM, ym, yM = domain

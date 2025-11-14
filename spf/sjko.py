@@ -69,16 +69,17 @@ class EulerianSPF:
         µt = µ0[None,:]
         if return_ft:
             ft = f[None,:]
-        
+        appended_str = ""
         for i, tau in enumerate(torch.diff(t)):
             if print_progress:
-                print(f'\r SJKO step {i+1}/{t.size(0)-1}...', end='')
+                print(f'\r SJKO step {i+1}/{t.size(0)-1}...'+appended_str, end='')
             µ = self.SJKO_step(µt[-1,:], tau, f0=f, **kwargs)
             f = self_transport(µ, self.cost_matrix, self.eps, init=f, tol=kwargs.get('sinkhorn_tol', 1e-4),
                                max_steps=kwargs.get('max_sinkhorn_steps', 10))
             if return_ft:
                 ft = torch.cat((ft, f[None,:]), dim=0)
             µt = torch.cat((µt, µ[None,:]), dim=0)
+            appended_str = f"(finished last step in {self.optimizer.current_iter} outer loop iterations)"
         
         if return_ft:
             return µt, ft
