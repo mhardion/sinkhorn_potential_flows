@@ -1,10 +1,7 @@
 import torch
 from collections.abc import Callable
-from .utils import clampedlog, euclidean_cost, euclidean_cost_batch
+from .utils import clampedlog, euclidean_cost
 from .optimizers import EulerianOptimizer, LagrangianOptimizer
-# from geomloss import SamplesLoss
-# import numpy as np
-
 class EulerianSPF:
     def __init__(self, X: torch.Tensor, potential: Callable[[torch.Tensor], torch.Tensor] | torch.Tensor,
                  eps:float, c: Callable[[torch.Tensor, torch.Tensor], torch.Tensor] | torch.Tensor = euclidean_cost):
@@ -27,7 +24,6 @@ class EulerianSPF:
         self.X = X
         self.eps = eps
         self.optimizer = None
-        # self.S_eps = SamplesLoss("sinkhorn", blur=np.sqrt(eps), backend='tensorized', cost=euclidean_cost_batch)
 
     def set_optimizer(self, opt: EulerianOptimizer):
         self.optimizer = opt
@@ -55,7 +51,6 @@ class EulerianSPF:
             f1 = self_transport(µ1, self.cost_matrix, self.eps, init=f1, tol=sinkhorn_tol,
                                   max_steps=max_sinkhorn_steps)
             schrodinger_potentials = [f10, g10]
-            # self.S_eps()
             grad = f10 - f1 + 2*tau*self.potential_array
             µ1 = self.optimizer.step(µ1, grad)
             k += 1
@@ -172,7 +167,6 @@ def sinkhorn_loop(µ1, µ2, c_xy, c_yx, eps_list, init=None, tol=1e-4):
         f12, g12 = 0.5 * (f12 + f12_), 0.5 * (g12 + g12_) 
 
     torch.autograd.set_grad_enabled(True)
-    # print(count, end='\r')
     f12, g12 = (
         softmin(eps, c_xy, (log_µ2 + g12 / eps).detach()),
         softmin(eps, c_yx, (log_µ1 + f12 / eps).detach()),

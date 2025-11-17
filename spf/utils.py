@@ -39,8 +39,6 @@ def apply_to_eig(M, *args):
     return res
 
 
-def xy(x):
-    return [x[...,i] for i in range(x.size(-1))]
 
 def xyz(x):
     return dict(x=x[...,0], y=x[...,1], z=x[...,2])
@@ -51,12 +49,6 @@ def unif(a, b, X):
     µ = torch.zeros_like(Y)
     µ[(a<Y) & (Y<b)] = 1.
     return µ/µ.sum()
-
-def diracs(domain, index):
-    i = torch.tensor(index)
-    a = torch.zeros(domain.size()[:-1], device=domain.device)
-    a[tuple(i.T)] = 1/len(index)
-    return a
 
 def simplex_proj(v):
     d = v.size(0)
