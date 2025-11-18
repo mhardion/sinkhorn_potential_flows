@@ -56,6 +56,7 @@ def fig_anim_2d(data, fig_side_px=700, dt=100, axisrange=[-1, 1], axisvisible=Tr
     return fig
 
 def go_sphere(heatmap=None, **kwargs):
+    """Create a sphere in graph_objects."""
     theta = torch.linspace(0, 2*torch.pi, 100)
     phi = torch.linspace(0, torch.pi, 100//2)
     x = torch.outer(torch.cos(theta), torch.sin(phi))
@@ -68,6 +69,7 @@ def go_sphere(heatmap=None, **kwargs):
     return go.Surface(x=x, y=y, z=z, **kwargs)
 
 def traj_3d(traj, **kwargs):
+    """Create the frames of a trajectory in 3d."""
     color = kwargs.pop('color', 'blue')
     line = kwargs.pop('line', {})
     line['color'] = color
@@ -81,6 +83,7 @@ def traj_3d(traj, **kwargs):
     return flow_lines
 
 def mass_flow(X, µ_t, **kwargs):
+    """Create a list of histograms to display a flow of 1D measures"""
     if X.size(1) > 2:
         raise NotImplementedError
     if X.size(1) == 2:
@@ -89,6 +92,7 @@ def mass_flow(X, µ_t, **kwargs):
     return [go.Bar(x=X.flatten(), y=µ, **kwargs) for µ in µ_t]
 
 def b_flow_sphere(cost_matrix, eps, fµ_t, potential_array, B_kwargs={}, rotation_lines_kwargs={}, sphere_kwargs={}, flow_kwargs={}):
+    """Create the frames of a trajectory of the embedding of a flow in the RKHS sphere."""
     b_t = torch.exp(-fμ_t/eps)
     if b_t.size(1) != 3:
         raise NotImplementedError
@@ -129,6 +133,7 @@ def b_flow_sphere(cost_matrix, eps, fµ_t, potential_array, B_kwargs={}, rotatio
     return spheredata, traj_3d(traj, **flow_kwargs)
 
 def particle_flow(Xt, **kwargs):
+    """Create the frames of a flow of particles"""
     marker = kwargs.pop('marker', {})
     marker['size'] = marker.get('size', 5)
     if Xt.size(2) > 2:
@@ -138,6 +143,7 @@ def particle_flow(Xt, **kwargs):
     return [go.Scatter(x=x[:,0], y=torch.zeros(x.size(0)),  mode='markers', marker=marker, **kwargs) for x in Xt]
 
 def particles_to_bars(xt, X, width, **kwargs):
+    """Create a list of empirical histograms based on particles"""
     data = []
     bins = torch.cat((X.flatten()-width/2, X[-1]+width/2))
     for x in xt:
@@ -147,6 +153,7 @@ def particles_to_bars(xt, X, width, **kwargs):
     return data
 
 def potential_heatmap(V, domain, grid_size=50, **kwargs):
+    """Create a heatmap to display a potential in 2D"""
     xm, xM, ym, yM = domain
     x = torch.linspace(xm, xM, grid_size)
     y = torch.linspace(ym, yM, grid_size)

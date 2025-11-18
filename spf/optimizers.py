@@ -4,7 +4,12 @@ from collections.abc import Callable
 from .utils import simplex_proj
 
 class EulerianOptimizer(ABC):
-
+    """Abstract class used for optimizers in the Eulerian discretization.
+    Methods
+    -------
+    step(µ, grad) : perform 1 step of the optimization algorithm.
+    reset() : reset all parameters to start again from scratch.
+    """
     @abstractmethod
     def step(self, µ: torch.Tensor, grad: torch.Tensor) -> torch.Tensor:
         pass
@@ -14,7 +19,7 @@ class EulerianOptimizer(ABC):
         pass
 
 class PGD(EulerianOptimizer):
-
+    """Projected gradient descent."""
     def __init__(self, lr: float | Callable[[int], float]):
         super().__init__()
         if callable(lr):
@@ -32,7 +37,7 @@ class PGD(EulerianOptimizer):
         self.current_iter = 0
 
 class APGD(EulerianOptimizer):
-
+    """Accelerated Projected Gradient Descent."""
     def __init__(self,lr: float | Callable[[int], float]):
         super().__init__()
         self.current_iter = 0
@@ -56,7 +61,7 @@ class APGD(EulerianOptimizer):
         self.µ_ = None
 
 class FrankWolfe(EulerianOptimizer):
-
+    """Frank-Wolfe."""
     def __init__(self):
         super().__init__()
         self.current_iter = 0
@@ -71,7 +76,7 @@ class FrankWolfe(EulerianOptimizer):
         self.current_iter = 0
 
 class ExpGD(EulerianOptimizer):
-
+    """Exponential Gradient Descent."""
     def __init__(self, lr: float | Callable[[int], float]):
         super().__init__()
         self.current_iter = 0
@@ -91,7 +96,12 @@ class ExpGD(EulerianOptimizer):
 
 
 class LagrangianOptimizer(ABC):
-
+    """Abstract class used for optimizers in the Lagrangian discretization.
+    Methods
+    -------
+    step(x, grad) : perform 1 step of the optimization algorithm.
+    reset() : reset all parameters to start again from scratch.
+    """
     @abstractmethod
     def step(self, x: torch.Tensor, grad:torch.Tensor) -> torch.Tensor:
         pass
@@ -101,7 +111,7 @@ class LagrangianOptimizer(ABC):
         pass
 
 class GD(LagrangianOptimizer):
-
+    """Gradient Descent."""
     def __init__(self, lr: float | Callable[[int], float]):
         super().__init__()
         if callable(lr):
@@ -118,7 +128,7 @@ class GD(LagrangianOptimizer):
         self.current_iter = 0
 
 class NesterovGD(LagrangianOptimizer):
-
+    """Nesterov Accelerated Gradient Descent."""
     def __init__(self, lr: float | Callable[[int], float]):
         super().__init__()
         if callable(lr):
